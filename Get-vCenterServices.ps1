@@ -7,18 +7,18 @@ The script interacts with the REST based vSphere APIs (cis,vcenter,appliance)
 in order to list the status of vCenter Services.  When run, it tries to authenticate 
 against cis API with the given credentials. If the session is established successfully, 
 a token is acquired and a simple menu is presented in order to trigger other functions 
-to retrieve the status of vCenter Services by performing REST calls towards the vcenter 
-and the appliance API.
+to retrieve the status of vCSA Services by performing REST calls towards the appliance API.
 
 .NOTES  
 Created by:  Ioannis Patsiotis
 Email: ioannis.patsiotis@gmail.com
-Date Created: 23/10/2019
-Version: 1.0
-Dependencies: vCenter Appliance 6.7 (6.7.0.10000) and higher
+Date Created: 02/11/2019
+Version: 1.1
+Dependencies: vCenter Appliance 6.5 (6.5.0.15000) and higher
 
 ===Tested Against Environment====
 vCSA Version: vCenter Appliance 6.7 U2 (6.7.0.30000)
+vCSA Version: vCenter Appliance 6.5 (6.5.0.15000)
 PowerCLI Version: PowerCLI 6.5 R1
 PowerShell Version: 5.1
 OS Version: Windows 10 1903
@@ -31,14 +31,15 @@ OS Version: Windows 10 1903
 #Function to visualize the menu
 function Show-Menu {
     param (
-           [string]$Title = 'vCenter Services'
+           [string]$Title = 'VMware vCenter Server Appliance - Services Monitoring'
     )
     
     cls
     Write-Host "================ $Title ================" 
 
-    Write-Host "1: Press '1' to list details of vCenter services from vcenter API."
-    Write-Host "2: Press '2' to list details of vCenter services from appliance API.`n"
+    Write-Host "1: Press '1' to list details of all VMware vCSA services."
+    Write-Host "2: Press '2' to list the services managed by vmware-vmon (VMware Service Lifecycle Manager) service."
+    Write-Host "3: Press '3' to list version information about the VMware vCSA.`n"
 
     Write-Host "================ EXIT ================" 
     Write-Host "Q: Press 'Q' to quit.`n"
@@ -87,7 +88,7 @@ function Invoke-vCenterTokenRequest {
     return $response
 }
 
-#Function to ignore certificate
+#Function to ignore vCenter certificate
 function Ignore-Certificate {
 
 if (-not ([System.Management.Automation.PSTypeName]'ServerCertificateValidationCallback').Type)
@@ -124,25 +125,32 @@ $certCallback = @"
 
 }
 
-#Function to list vCenter Services querying appliance API
-function Get-vCSA-Services{
+
+#Function to list the status of all vCSA services. Available only in vCSA 6.7.
+function Get-vCSA-Services {
     param (
-       [Parameter(Mandatory=$true)][string]$AuthTokenValue
-    )    
-       $headers = @{
-            'Accept' = 'application/json';
-            'vmware-api-session-id'= $AuthTokenValue;
+       [Parameter(Mandatory=$true)][string]$AuthTokenValue,
+       [Parameter(Mandatory=$true)][string]$vCSAVersion
+    )
+       if (([regex]::match($vCSAVersion,"6.7")).success){
+                  $headers = @{
+                        'Accept' = 'application/json';
+                        'vmware-api-session-id'= $AuthTokenValue;
+                   }
+                       $method = "GET"
+            
+                       $respond = Invoke-RestMethod -Method $method  -Headers $headers -uri $RestApiUrl/appliance/services
+                       $listvCSAServices = $respond.value | Select-Object -Property @{N='Service Name';E={$_.key}},@{N='Description';E={$_.value.description}},@{N='State';E={$_.value.state}} | Sort-Object -Property 'State'
+      } else{
+           $listvCSAServices = "The appliance.services API is not included in vSphere 6.5 REST API. Available only in vSphere 6.7.`n"
+           return $listvCSAServices
        }
-       $method = "GET"            
- 
-       $rs = Invoke-RestMethod -Method $method  -Headers $headers -uri $RestApiUrl/appliance/services
-       $listvcsaservices = $rs.value | Select-Object -Property @{N='Service Name';E={$_.key}},@{N='Service description';E={$_.value.description}},@{N='State';E={$_.value.state}} | Sort-Object -Property 'State'
-   
-       return $listvcsaservices
+  
+       return $listvCSAServices
 }
 
-#Function to list vCenter Services querying vcenter API
-function Get-vCenter-Services {
+#Function to list the status of the services managed by vmware-vmon(VMware Service Lifecycle Manager) service.
+function Get-vMon-Services{
     param (
        [Parameter(Mandatory=$true)][string]$AuthTokenValue
     )
@@ -151,12 +159,30 @@ function Get-vCenter-Services {
             'Accept' = 'application/json';
             'vmware-api-session-id'= $AuthTokenValue;
        }
+       $method = "GET"            
+ 
+       $respond = Invoke-RestMethod -Method $method  -Headers $headers -uri $RestApiUrl/appliance/vmon/service
+       $listVmonServices = $respond.value | Select-Object -Property @{N='Services';E={$_.key}},@{N='Startup Type';E={$_.value.startup_type}},@{N='State';E={$_.value.state}},@{N='Health';E={$_.value.health}} | Sort-Object -Property 'State'
+        
+       return $listVmonServices
+}
+
+#Function to get vCSA version
+function Get-vCSA-Version {
+    param (
+       [Parameter(Mandatory=$true)][string]$AuthTokenValue
+    )
+       $headers = @{
+            'Accept' = 'application/json';
+            'vmware-api-session-id'= $AuthTokenValue;
+       }
+        
        $method = "GET"
-            
-       $rs = Invoke-RestMethod -Method $method  -Headers $headers -uri $RestApiUrl/vcenter/services
-       $listvcenterservices = $rs.value | Select-Object -Property @{N='Service Name';E={$_.key}} ,@{N='State';E={$_.value.state}},@{N='Startup Type';E={$_.value.startup_type}},@{N='Health';E={$_.value.health}} | Sort-Object -Property 'State'
+     
+       $respond = Invoke-RestMethod -Method $method  -Headers $headers -uri $RestApiUrl/appliance/system/version
+       $listvCSAVersion = $respond.value | Select-Object -Property @{N='Product';E={$_.product}},@{N='Summary';E={$_.summary}},@{N='Type';E={$_.type}},@{N='Install Time';E={$_.install_time}},@{N='Build';E={$_.build}},@{N='Version';E={$_.version}},@{N='Release Date';E={$_.releasedate}}
    
-       return $listvcenterservices
+       return $listvCSAVersion
 }
 
 #Function to terminate the session 
@@ -172,11 +198,12 @@ function Terminate-Session {
             
        $method = "DELETE"
             
-       $rs = Invoke-RestMethod -Method $method  -Headers $headers -uri $RestApiUrl/com/vmware/cis/session
-       $terminatesession = $rs.value | Select-Object -Property @{N='ESXi Host Name';E={$_.name}},@{N='Connection State';E={$_.connection_state} } ,@{N='Power State';E={$_.power_state} }
+       $respond = Invoke-RestMethod -Method $method  -Headers $headers -uri $RestApiUrl/com/vmware/cis/session
+       $terminateSession = $respond.value | Select-Object -Property @{N='ESXi Host Name';E={$_.name}},@{N='Connection State';E={$_.connection_state} } ,@{N='Power State';E={$_.power_state} }
    
-       return $terminatesession
+       return $terminateSession
 }
+
 
 
 #Main Program
@@ -203,14 +230,14 @@ DO{
     $password = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($password))
 
     $creds = Set-Credentials -username $username -password $password
-    $CorrectToken = 1
+    $correctToken = 1
 
     try{
         $AuthenticationToken = Create-Session
         if ($AuthenticationToken.Value){
             Write-Host "Authentication Token acquired successfully" -ForegroundColor Green
             Start-Sleep -Seconds 2
-            $CorrectToken = 0
+            $correctToken = 0
             $FuncAuthToken = $AuthenticationToken.Value
         }
         
@@ -220,9 +247,10 @@ DO{
         Start-Sleep -Seconds 2
     }
 
-  }While ($CorrectToken -eq 1)  
+  }While ($correctToken -eq 1)  
 
-  
+#Get the vCSA version in order to check if appliance.services API is present (Present only in vCSA 6.7)
+$vcsaVersion = Get-vCSA-Version -AuthTokenValue $FuncAuthToken
 
 #Main menu loop
 DO
@@ -233,16 +261,22 @@ DO
      {
              '1' {
                 cls
-                        Write-Host "You have selected to list details of vCenter services from vcenter API."
-                        $vCenterServices = Get-vCenter-Services -AuthTokenValue $FuncAuthToken | ft
-                        echo $vCenterServices
+                        Write-Host "The list of all vCSA services is:`n"
+                        $vcsaServices = Get-vCSA-Services -AuthTokenValue $FuncAuthToken -vCSAVersion ($vcsaVersion.version) | ft
+                        echo $vcsaServices
 
             } '2' {
                 cls
-                        Write-Host "You have selected to list details of vCenter services from appliance API."
-                        $vcsaServices = Get-vCSA-Services -AuthTokenValue $FuncAuthToken | ft
-                        echo $vcsaServices                   
+                        Write-Host "The list of services managed by vmware-vmon (VMware Service Lifecycle Manager) is:`n"
+                        $vmonServices = Get-vMon-Services -AuthTokenValue $FuncAuthToken  | ft
+                        echo $vmonServices
 
+			} '3'  {
+                cls
+                        Write-Host "Information list about the connected VMware vCSA:`n"
+                        $vcsaVersionSelection = Get-vCSA-Version -AuthTokenValue $FuncAuthToken | fl
+                        echo $vcsaVersionSelection
+                   
             } 'q' {
                  
                         $quit = Terminate-Session -AuthTokenValue $FuncAuthToken | ft                         
