@@ -344,7 +344,7 @@ DO{
 
   }While ($correctToken -eq 1)  
 
-#Get the vCSA version in order to check if appliance.services API is present (Present only in vCSA 6.7)
+#Get the vCSA version 
 $vcsaVersion = Get-vCSA-Version -AuthTokenValue $FuncAuthToken
 
 #Main menu loop
