@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
 This PowerShell script allows you to quickly check the status of vCenter Services.
 
@@ -34,17 +34,25 @@ OS Version: Windows 10 1903
 #Function to visualize the menu
 function Show-Menu {
     param (
+<<<<<<< HEAD
            [string]$Title = 'VMware vCenter Server Appliance - Monitoring Services'
+=======
+           [string]$Title = 'vCenter Server Appliance - Monitoring Services'
+>>>>>>> 5232a12017e9bfdb91b7da8e876458ed088874f2
     )
     
     cls
     Write-Host "================ $Title ================`n" 
 
-    Write-Host "1: Press '1' to list details of all VMware vCSA services."
+    Write-Host "1: Press '1' to list details of all vCSA services."
     Write-Host "2: Press '2' to list the services managed by vmware-vmon (VMware Service Lifecycle Manager) service."
+<<<<<<< HEAD
     Write-Host "3: Press '3' to list version information and uptime about the connected VMware vCSA."
     Write-Host "4: Press '4' to list VMware vCSA Health Status."
     Write-Host "5: Press '5' to list VMware vCSA Disks.`n"
+=======
+    Write-Host "3: Press '3' to list version information about the vCSA appliance.`n"
+>>>>>>> 5232a12017e9bfdb91b7da8e876458ed088874f2
 
     Write-Host "================ EXIT ================" 
     Write-Host "Q: Press 'Q' to quit.`n"
