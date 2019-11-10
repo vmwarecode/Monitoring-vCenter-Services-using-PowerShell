@@ -13,7 +13,7 @@ by performing REST calls towards the appliance API.
 .NOTES  
 Created by:  Ioannis Patsiotis
 Email: ioannis.patsiotis@gmail.com
-Date Created: 02/11/2019
+Date Created: 23/10/2019
 Version 1.0 (23/10/2019): Initial commit. Support only for vCSA 6.7.
 Version 1.1 (06/11/2019): Added support for vCSA 6.5. Code fixing.
 Version 1.2 (10/11/2019): New options for vCSA Health Status, Uptime and vCSA Disks. Code fixing.
