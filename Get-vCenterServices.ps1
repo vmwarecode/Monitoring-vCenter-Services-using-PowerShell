@@ -3,17 +3,20 @@
 This PowerShell script allows you to quickly check the status of vCenter Services.
 
 .DESCRIPTION
-The script interacts with the REST based vSphere APIs (cis,vcenter,appliance) 
-in order to list the status of vCenter Services.  When run, it tries to authenticate 
+The script interacts with the REST based vSphere APIs in order to list the status of vCenter Services
+and the health status of the VMware vCSA.  When run, it tries to authenticate 
 against cis API with the given credentials. If the session is established successfully, 
 a token is acquired and a simple menu is presented in order to trigger other functions 
-to retrieve the status of vCSA Services by performing REST calls towards the appliance API.
+to retrieve the status of vCenter Services as well as the vCSA health status 
+by performing REST calls towards the appliance API.
 
 .NOTES  
 Created by:  Ioannis Patsiotis
 Email: ioannis.patsiotis@gmail.com
 Date Created: 02/11/2019
-Version: 1.1
+Version 1.0 (02/11/2019): Initial commit. Support only for vCSA 6.7.
+Version 1.1 (06/11/2019): Added support for vCSA 6.5. Code fixing.
+Version 1.2 (10/11/2019): New options for vCSA Health Status, Uptime and vCSA Disks. Code fixing.
 Dependencies: vCenter Appliance 6.5 (6.5.0.15000) and higher
 
 ===Tested Against Environment====
@@ -31,15 +34,17 @@ OS Version: Windows 10 1903
 #Function to visualize the menu
 function Show-Menu {
     param (
-           [string]$Title = 'VMware vCenter Server Appliance - Services Monitoring'
+           [string]$Title = 'VMware vCenter Server Appliance - Monitoring Services'
     )
     
     cls
-    Write-Host "================ $Title ================" 
+    Write-Host "================ $Title ================`n" 
 
     Write-Host "1: Press '1' to list details of all VMware vCSA services."
     Write-Host "2: Press '2' to list the services managed by vmware-vmon (VMware Service Lifecycle Manager) service."
-    Write-Host "3: Press '3' to list version information about the VMware vCSA.`n"
+    Write-Host "3: Press '3' to list version information and uptime about the connected VMware vCSA."
+    Write-Host "4: Press '4' to list VMware vCSA Health Status."
+    Write-Host "5: Press '5' to list VMware vCSA Disks.`n"
 
     Write-Host "================ EXIT ================" 
     Write-Host "Q: Press 'Q' to quit.`n"
@@ -125,6 +130,88 @@ $certCallback = @"
 
 }
 
+#Function to list the Health of vCSA
+function Get-Health-Message{
+    param (
+       [Parameter(Mandatory=$true)][string]$colour
+    )
+            switch($colour){
+                "green" {$message = "Service is healthy"}
+                "orange" {$message = "The service health is degraded. The service might have serious problems"}
+                "red"  {$message = "The service is unavaiable and is not functioning properly or will stop functioning soon"}
+                "yellow" {$message = "The service is healthy state, but experiencing some levels of problems.Database storage health"}
+                "gray"  {$message = "No health data is available for this service"}
+                "unknown" {$message = "No health data is available for this service"}
+                default {$message = "No health data is available for this service"}
+            }
+
+    return $message
+}
+
+#Function to list vCSA disks and partitions
+function Get-vCSA-Disks{
+    param (
+       [Parameter(Mandatory=$true)][string]$AuthTokenValue
+    )
+    #curl -X GET --header 'Accept: application/json' --header 'vmware-api-session-id: 82427d1baafec43f7d1b71ef02ab17b8' 'https://vcsa67.ipats.local/rest/appliance/system/storage'
+       
+       $headers = @{
+            'Accept' = 'application/json';
+            'vmware-api-session-id'= $AuthTokenValue;
+       }
+       $method = "GET"       
+
+       $respond = Invoke-RestMethod -Method $method  -Headers $headers -uri $RestApiUrl/appliance/system/storage
+       $listvCSADisks = $respond.value | Select-Object -Property @{N='Disk Number';E={$_.disk}},@{N='Partition Name';E={$_.partition}},@{N='Description';E={$_.description.default_message}} | Sort-Object -Property 'Disk Number'
+
+       return $listvCSADisks
+}
+
+
+#Function to list the vCSA health status
+function Get-Health-Status{
+    param (
+       [Parameter(Mandatory=$true)][string]$AuthTokenValue
+    )
+
+       $headers = @{
+            'Accept' = 'application/json';
+            'vmware-api-session-id'= $AuthTokenValue;
+       }
+       $method = "GET"       
+
+       $respondOverallHealth = Invoke-RestMethod -Method $method  -Headers $headers -uri $RestApiUrl/appliance/health/system
+       $overallHealthMessage = Get-Health-Message -colour $respondOverallHealth.value
+
+       $lastCheck = Invoke-RestMethod -Method $method  -Headers $headers -uri $RestApiUrl/appliance/health/system/lastcheck
+
+       $respondLoad = Invoke-RestMethod -Method $method  -Headers $headers -uri $RestApiUrl/appliance/health/load
+       $loadHealthMessage = Get-Health-Message -colour $respondLoad.value
+
+       $respondMemory = Invoke-RestMethod -Method $method  -Headers $headers -uri $RestApiUrl/appliance/health/mem
+       $memoryHealthMessage = Get-Health-Message -colour $respondMemory.value
+
+       $respondStorage = Invoke-RestMethod -Method $method  -Headers $headers -uri $RestApiUrl/appliance/health/storage
+       $storageHealthMessage = Get-Health-Message -colour $respondStorage.value
+
+       $respondDatabase = Invoke-RestMethod -Method $method  -Headers $headers -uri $RestApiUrl/appliance/health/database-storage
+       $databaseHealthMessage = Get-Health-Message -colour $respondDatabase.value
+
+       $respondSwap = Invoke-RestMethod -Method $method  -Headers $headers -uri $RestApiUrl/appliance/health/swap
+       $swapHealthMessage = Get-Health-Message -colour $respondSwap.value
+
+
+       $healtStatus = New-Object -TypeName psobject 
+       $healtStatus | Add-Member -MemberType NoteProperty -Name 'Overall Health' -Value $("$($respondOverallHealth.value) , Health Message: $($overallHealthMessage) , LastCheck: $($lastCheck.value)")
+       $healtStatus | Add-Member -MemberType NoteProperty -Name 'CPU Load' -Value $("$($respondLoad.value) , Health Message: $($loadHealthMessage)")
+       $healtStatus | Add-Member -MemberType NoteProperty -Name 'Memory' -Value $("$($respondMemory.value) , Health Message: $($memoryHealthMessage)")
+       $healtStatus | Add-Member -MemberType NoteProperty -Name 'Storage' -Value $("$($respondStorage.value) , Health Message: $($storageHealthMessage)")
+       $healtStatus | Add-Member -MemberType NoteProperty -Name 'Database' -Value $("$($respondDatabase.value) , Health Message: $($databaseHealthMessage)")
+       $healtStatus | Add-Member -MemberType NoteProperty -Name 'Swap' -Value $("$($respondSwap.value) , Health Message: $($swapHealthMessage)")
+      
+
+       return $healtStatus
+}
 
 #Function to list the status of all vCSA services. Available only in vCSA 6.7.
 function Get-vCSA-Services {
@@ -132,19 +219,20 @@ function Get-vCSA-Services {
        [Parameter(Mandatory=$true)][string]$AuthTokenValue,
        [Parameter(Mandatory=$true)][string]$vCSAVersion
     )
-       if (([regex]::match($vCSAVersion,"6.7")).success){
-                  $headers = @{
+
+       $headers = @{
                         'Accept' = 'application/json';
                         'vmware-api-session-id'= $AuthTokenValue;
                    }
-                       $method = "GET"
-            
-                       $respond = Invoke-RestMethod -Method $method  -Headers $headers -uri $RestApiUrl/appliance/services
-                       $listvCSAServices = $respond.value | Select-Object -Property @{N='Service Name';E={$_.key}},@{N='Description';E={$_.value.description}},@{N='State';E={$_.value.state}} | Sort-Object -Property 'State'
+       $method = "GET"
+       
+       if (([regex]::match($vCSAVersion,"6.7")).success){
+           $respond = Invoke-RestMethod -Method $method  -Headers $headers -uri $RestApiUrl/appliance/services
+           $listvCSAServices = $respond.value | Select-Object -Property @{N='Service Name';E={$_.key}},@{N='State';E={$_.value.state}},@{N='Description';E={$_.value.description}} | Sort-Object -Property 'State'
       } else{
-           $listvCSAServices = "The appliance.services API is not included in vSphere 6.5 REST API. Available only in vSphere 6.7.`n"
-           return $listvCSAServices
-       }
+           $respond = Invoke-RestMethod -Method $method  -Headers $headers -uri $RestApiUrl/appliance/techpreview/services
+           $listvCSAServices = $respond.value | Select-Object -Property @{N='Service Name';E={$_.name}},@{N='Description';E={$_.description}}
+      }
   
        return $listvCSAServices
 }
@@ -162,16 +250,17 @@ function Get-vMon-Services{
        $method = "GET"            
  
        $respond = Invoke-RestMethod -Method $method  -Headers $headers -uri $RestApiUrl/appliance/vmon/service
-       $listVmonServices = $respond.value | Select-Object -Property @{N='Services';E={$_.key}},@{N='Startup Type';E={$_.value.startup_type}},@{N='State';E={$_.value.state}},@{N='Health';E={$_.value.health}} | Sort-Object -Property 'State'
+       $listVmonServices = $respond.value | Select-Object -Property @{N='Service Name';E={$_.key}},@{N='State';E={$_.value.state}},@{N='Health';E={$_.value.health}},@{N='Startup Type';E={$_.value.startup_type}} | Sort-Object -Property 'State'
         
        return $listVmonServices
 }
 
-#Function to get vCSA version
+#Function to get vCSA version and uptime
 function Get-vCSA-Version {
     param (
        [Parameter(Mandatory=$true)][string]$AuthTokenValue
     )
+    
        $headers = @{
             'Accept' = 'application/json';
             'vmware-api-session-id'= $AuthTokenValue;
@@ -179,9 +268,15 @@ function Get-vCSA-Version {
         
        $method = "GET"
      
-       $respond = Invoke-RestMethod -Method $method  -Headers $headers -uri $RestApiUrl/appliance/system/version
-       $listvCSAVersion = $respond.value | Select-Object -Property @{N='Product';E={$_.product}},@{N='Summary';E={$_.summary}},@{N='Type';E={$_.type}},@{N='Install Time';E={$_.install_time}},@{N='Build';E={$_.build}},@{N='Version';E={$_.version}},@{N='Release Date';E={$_.releasedate}}
-   
+       $respondVersion = Invoke-RestMethod -Method $method  -Headers $headers -uri $RestApiUrl/appliance/system/version
+       $listvCSAVersion = $respondVersion.value | Select-Object -Property @{N='Product';E={$_.product}},@{N='Summary';E={$_.summary}},@{N='Type';E={$_.type}},@{N='Install Time';E={$_.install_time}},@{N='Build';E={$_.build}},@{N='Version';E={$_.version}},@{N='Release Date';E={$_.releasedate}}
+       
+       $respondUptime = Invoke-RestMethod -Method $method  -Headers $headers -uri $RestApiUrl/appliance/system/uptime
+       $listvCSAUptime = $respondUptime.value 
+         
+       $Timespan = New-Timespan -Seconds $listvCSAUptime 
+       $listvCSAVersion | Add-Member -MemberType NoteProperty -Name 'System uptime' -Value $("$($Timespan.Days) Days, $($Timespan.Hours) Hours, $($Timespan.Minutes) Minutes")
+        
        return $listvCSAVersion
 }
 
@@ -276,8 +371,21 @@ DO
                         Write-Host "Information list about the connected VMware vCSA:`n"
                         $vcsaVersionSelection = Get-vCSA-Version -AuthTokenValue $FuncAuthToken | fl
                         echo $vcsaVersionSelection
+                      
                    
-            } 'q' {
+            } '4'  {
+                cls
+                        Write-Host "vCSA Health Status:`n"
+                        $vcsaHealthStatus = Get-Health-Status -AuthTokenValue $FuncAuthToken | fl
+                        echo $vcsaHealthStatus
+
+            } '5'  {
+                cls
+                        Write-Host "The list of vCSA Disks and Partitions is:`n"
+                        $vcsaDisks = Get-vCSA-Disks -AuthTokenValue $FuncAuthToken | ft
+                        echo $vcsaDisks
+                              
+           } 'q'  {
                  
                         $quit = Terminate-Session -AuthTokenValue $FuncAuthToken | ft                         
                         Write-Host "vSphere REST API session terminated successfully" -ForegroundColor Green
